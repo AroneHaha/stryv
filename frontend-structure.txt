@@ -1,0 +1,91 @@
+stryv-frontend/
+├── public/
+│   ├── favicon.ico
+│   └── logo.svg
+├── src/
+│   ├── app/
+│   │   ├── (auth)/
+│   │   │   ├── login/
+│   │   │   │   └── page.tsx
+│   │   │   └── layout.tsx
+│   │   ├── (admin)/             # Layout for Owner & Employee
+│   │   │   ├── layout.tsx           # Includes Sidebar & Header
+│   │   │   ├── dashboard/
+│   │   │   │   └── page.tsx
+│   │   │   ├── members/
+│   │   │   │   ├── page.tsx
+│   │   │   │   └── [id]/
+│   │   │   │       └── page.tsx
+│   │   │   ├── employees/
+│   │   │   │   ├── page.tsx
+│   │   │   │   └── [id]/
+│   │   │   │       └── page.tsx
+│   │   │   ├── attendance/
+│   │   │   │   └── page.tsx
+│   │   │   ├── revenue/
+│   │   │   │   └── page.tsx
+│   │   │   └── payroll/
+│   │   │   │   └── page.tsx
+│   │   ├── (member)/                # Layout for Member Role
+│   │   │   ├── layout.tsx
+│   │   │   └── page.tsx
+│   │   ├── globals.css
+│   │   ├── layout.tsx               # Root Layout
+│   │   └── page.tsx                 # Landing / Redirect
+│   ├── components/
+│   │   ├── auth/
+│   │   │   └── LoginForm.tsx
+│   │   ├── common/
+│   │   │   ├── Button.tsx
+│   │   │   ├── Card.tsx
+│   │   │   ├── Modal.tsx
+│   │   │   └── Table.tsx
+│   │   ├── dashboard/
+│   │   │   ├── ActionLogTable.tsx
+│   │   │   ├── RevenueCard.tsx
+│   │   │   └── StatCard.tsx
+│   │   ├── layout/
+│   │   │   ├── Sidebar.tsx          # Handles Dropdown Logic
+│   │   │   ├── TopBar.tsx
+│   │   │   └── MemberSidebar.tsx
+│   │   ├── members/
+│   │   │   ├── AddMemberForm.tsx
+│   │   │   ├── EditMemberForm.tsx
+│   │   │   ├── MemberStatusBadge.tsx
+│   │   │   └── MembersTable.tsx
+│   │   ├── attendance/
+│   │   │   ├── AttendanceForm.tsx   # Auto-suggest & Modals
+│   │   │   └── AttendanceTable.tsx
+│   │   ├── revenue/
+│   │   │   ├── RevenueChart.tsx
+│   │   │   └── RevenueFilters.tsx
+│   │   ├── payroll/
+│   │   │   ├── PayrollTable.tsx
+│   │   │   └── MarkPaidModal.tsx
+│   │   └── member-portal/
+│   │       ├── MembershipStatus.tsx
+│   │       └── ContributionGraph.tsx # GitHub-style grid
+│   ├── hooks/
+│   │   ├── useAuth.ts
+│   │   ├── useAttendance.ts
+│   │   └── useRevenue.ts
+│   ├── lib/
+│   │   ├── api.ts                   # Axios/Fetch setup
+│   │   ├── utils.ts                 # Password generators, date formatters
+│   │   └── constants.ts             # Pricing rules, roles
+│   ├── store/
+│   │   └── authStore.ts             # Zustand or Context for global state
+│   ├── types/
+│   │   ├── user.ts
+│   │   ├── member.ts
+│   │   ├── attendance.ts
+│   │   ├── revenue.ts
+│   │   └── payroll.ts
+│   └── styles/
+├── .env.local
+├── .eslintrc.json
+├── next.config.js
+├── package.json
+├── postcss.config.js
+├── tailwind.config.ts
+└── tsconfig.json
