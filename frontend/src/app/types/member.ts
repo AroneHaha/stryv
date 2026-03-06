@@ -8,7 +8,7 @@ export interface Member {
   customerType: 'Regular' | 'Student';
   plan: '6 Months' | '1 Year';
   paymentMethod: 'Cash' | 'GCash';
-  price: number;
+  membershipPrice: number;
   startDate: string;
   expirationDate: string;
   username: string;

@@ -1,4 +1,5 @@
 <?php
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -9,17 +10,18 @@ return new class extends Migration
     {
         Schema::create('payrolls', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('employee_id')->constrained('users')->onDelete('cascade');
+            $table->foreignId('employee_id')->nullable()->constrained('users')->nullOnDelete();
             $table->string('employee_name');
             $table->decimal('salary', 10, 2);
             $table->integer('month');
             $table->integer('year');
-            $table->enum('status', ['Pending', 'Paid'])->default('Pending');
+            $table->enum('status', ['Unpaid', 'Paid'])->default('Unpaid');
             $table->timestamp('paid_at')->nullable();
             $table->foreignId('marked_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
-
-            $table->unique(['employee_id', 'month', 'year']);
+            
+            $table->index(['employee_id', 'month', 'year']);
+            $table->index('status');
         });
     }
 

@@ -1,4 +1,5 @@
 <?php
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -9,9 +10,9 @@ return new class extends Migration
     {
         Schema::create('attendances', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignId('member_id')->nullable()->constrained('users')->nullOnDelete();
             $table->string('name');
-            $table->enum('type', ['Member', 'Walk-in']);
+            $table->enum('type', ['Member', 'Walk-in', 'Expired']);
             $table->enum('customer_type', ['Regular', 'Student']);
             $table->enum('payment_method', ['Cash', 'GCash']);
             $table->decimal('price', 10, 2)->default(0);
@@ -19,8 +20,9 @@ return new class extends Migration
             $table->time('time');
             $table->foreignId('recorded_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
-
+            
             $table->index(['date', 'type']);
+            $table->index('member_id');
         });
     }
 

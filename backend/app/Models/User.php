@@ -7,16 +7,13 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
-use App\Models\Member;
-use App\Models\Employee;
-use App\Models\Attendance;
-use App\Models\Payroll;
 
 class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
     protected $fillable = [
+        // Common fields
         'first_name',
         'last_name',
         'name',
@@ -25,6 +22,21 @@ class User extends Authenticatable
         'phone',
         'role',
         'status',
+        
+        // Member fields
+        'birthdate',
+        'username',
+        'customer_type',
+        'plan',
+        'payment_method',
+        'membership_price',
+        'start_date',
+        'expiration_date',
+        
+        // Employee fields
+        'position',
+        'salary',
+        'date_hired',
     ];
 
     protected $hidden = [
@@ -33,23 +45,24 @@ class User extends Authenticatable
     ];
 
     protected $casts = [
+        'birthdate' => 'date',
+        'start_date' => 'date',
+        'expiration_date' => 'date',
+        'date_hired' => 'date',
+        'membership_price' => 'decimal:2',
+        'salary' => 'decimal:2',
         'password' => 'hashed',
     ];
 
     // Relationships
-    public function member()
-    {
-        return $this->hasOne(Member::class);
-    }
-
-    public function employee()
-    {
-        return $this->hasOne(Employee::class);
-    }
-
     public function attendances()
     {
-        return $this->hasMany(Attendance::class);
+        return $this->hasMany(Attendance::class, 'member_id');
+    }
+
+    public function recordedAttendances()
+    {
+        return $this->hasMany(Attendance::class, 'recorded_by');
     }
 
     public function payrolls()
@@ -57,7 +70,12 @@ class User extends Authenticatable
         return $this->hasMany(Payroll::class, 'employee_id');
     }
 
-    // Role Checks
+    public function markedPayrolls()
+    {
+        return $this->hasMany(Payroll::class, 'marked_by');
+    }
+
+    // Role checks
     public function isOwner(): bool
     {
         return $this->role === 'Owner';
@@ -73,20 +91,20 @@ class User extends Authenticatable
         return $this->role === 'Member';
     }
 
-    // Scopes
-    public function scopeOwners($query)
+    public function isActive(): bool
     {
-        return $query->where('role', 'Owner');
+        return $this->status === 'Active';
+    }
+
+    // Scopes
+    public function scopeMembers($query)
+    {
+        return $query->where('role', 'Member');
     }
 
     public function scopeEmployees($query)
     {
-        return $query->where('role', 'Employee');
-    }
-
-    public function scopeMembers($query)
-    {
-        return $query->where('role', 'Member');
+        return $query->whereIn('role', ['Owner', 'Employee']);
     }
 
     public function scopeActive($query)

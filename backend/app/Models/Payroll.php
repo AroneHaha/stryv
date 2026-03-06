@@ -35,9 +35,9 @@ class Payroll extends Model
         return $this->belongsTo(User::class, 'marked_by');
     }
 
-    public function scopePending($query)
+    public function scopeUnpaid($query)
     {
-        return $query->where('status', 'Pending');
+        return $query->where('status', 'Unpaid');
     }
 
     public function scopePaid($query)

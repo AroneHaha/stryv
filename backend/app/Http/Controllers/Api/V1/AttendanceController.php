@@ -54,7 +54,7 @@ class AttendanceController extends Controller
         $validated = $request->validate([
             'user_id' => 'nullable|exists:users,id',
             'name' => 'required|string|max:255',
-            'type' => 'required|in:Member,Walk-in',
+            'type' => 'required|in:Member,Walk-in,Expired',
             'customer_type' => 'required|in:Regular,Student',
             'payment_method' => 'required|in:Cash,GCash',
             'price' => 'required|numeric|min:0',

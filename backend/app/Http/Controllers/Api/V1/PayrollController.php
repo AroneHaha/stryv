@@ -51,7 +51,6 @@ class PayrollController extends Controller
             return $this->errorResponse('Invalid employee', 400);
         }
 
-        // Check if payroll already exists
         $exists = Payroll::where('employee_id', $validated['employee_id'])
             ->where('month', $validated['month'])
             ->where('year', $validated['year'])
@@ -67,7 +66,7 @@ class PayrollController extends Controller
             'salary' => $employee->salary,
             'month' => $validated['month'],
             'year' => $validated['year'],
-            'status' => 'Pending',
+            'status' => 'Unpaid',
         ]);
 
         return $this->successResponse($payroll->load(['employee', 'marker']), 'Payroll created successfully', 201);
@@ -129,7 +128,7 @@ class PayrollController extends Controller
                     'salary' => $employee->salary,
                     'month' => $validated['month'],
                     'year' => $validated['year'],
-                    'status' => 'Pending',
+                    'status' => 'Unpaid',
                 ]);
                 $created++;
             }
@@ -148,7 +147,7 @@ class PayrollController extends Controller
 
         $stats = [
             'total' => Payroll::where('month', $month)->where('year', $year)->count(),
-            'pending' => Payroll::where('month', $month)->where('year', $year)->where('status', 'Pending')->count(),
+            'unpaid' => Payroll::where('month', $month)->where('year', $year)->where('status', 'Unpaid')->count(),
             'paid' => Payroll::where('month', $month)->where('year', $year)->where('status', 'Paid')->count(),
             'total_amount' => Payroll::where('month', $month)->where('year', $year)->sum('salary'),
             'paid_amount' => Payroll::where('month', $month)->where('year', $year)->where('status', 'Paid')->sum('salary'),
@@ -156,4 +155,4 @@ class PayrollController extends Controller
 
         return $this->successResponse($stats);
     }
-}   
+}

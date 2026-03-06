@@ -4,183 +4,134 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Models\Employee;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
 class EmployeeController extends Controller
 {
-    public function __construct()
-    {
-        $this->middleware(function ($request, $next) {
-            if ($request->user()->role !== 'Owner') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Only Owner can access this resource',
-                ], 403);
-            }
-            return $next($request);
-        });
-    }
-
-    public function index(Request $request)
+    public function index(Request $request): JsonResponse
     {
         $query = User::whereIn('role', ['Owner', 'Employee'])
-            ->with('employee')
             ->orderBy('created_at', 'desc');
 
-        if ($request->search) {
+        if ($request->has('search') && $request->search) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%")
-                  ->orWhere('phone', 'like', "%{$search}%");
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('phone', 'like', "%{$search}%");
             });
         }
 
-        if ($request->status) {
+        if ($request->has('status') && $request->status) {
             $query->where('status', $request->status);
+        }
+
+        if ($request->has('position') && $request->position) {
+            $query->where('position', $request->position);
         }
 
         $employees = $query->paginate($request->per_page ?? 10);
 
-        return response()->json([
-            'success' => true,
-            'data' => $employees,
-        ]);
+        return $this->successResponse($employees);
     }
 
-    public function store(Request $request)
+    public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
             'phone' => 'nullable|string|max:20',
-            'position' => 'required|string|max:255',
+            'position' => 'required|in:Trainer,Receptionist,Manager,Maintenance',
             'salary' => 'required|numeric|min:0',
             'date_hired' => 'required|date',
-            'role' => 'sometimes|in:Employee',
         ]);
 
-        $user = User::create([
+        // Generate password: firstname.MMDD (use date_hired for employees)
+        $dateHired = \Carbon\Carbon::parse($validated['date_hired']);
+        $password = strtolower($validated['first_name']) . '.' . $dateHired->format('md');
+
+        $employee = User::create([
             'first_name' => $validated['first_name'],
             'last_name' => $validated['last_name'],
             'name' => $validated['first_name'] . ' ' . $validated['last_name'],
             'email' => $validated['email'],
+            'password' => Hash::make($password),
             'phone' => $validated['phone'] ?? null,
-            'password' => Hash::make('password'),
             'role' => 'Employee',
             'status' => 'Active',
-        ]);
-
-        $employee = Employee::create([
-            'user_id' => $user->id,
             'position' => $validated['position'],
             'salary' => $validated['salary'],
             'date_hired' => $validated['date_hired'],
         ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Employee created successfully',
-            'data' => $user->load('employee'),
-        ], 201);
+        return $this->successResponse($employee, 'Employee created successfully', 201);
     }
 
-    public function show($id)
+    public function show(User $employee): JsonResponse
     {
-        $employee = User::whereIn('role', ['Owner', 'Employee'])
-            ->with('employee')
-            ->find($id);
-
-        if (!$employee) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Employee not found',
-            ], 404);
+        if (!in_array($employee->role, ['Owner', 'Employee'])) {
+            return $this->errorResponse('Employee not found', 404);
         }
 
-        return response()->json([
-            'success' => true,
-            'data' => $employee,
-        ]);
+        return $this->successResponse($employee);
     }
 
-    public function update(Request $request, $id)
+    public function update(Request $request, User $employee): JsonResponse
     {
-        $user = User::whereIn('role', ['Owner', 'Employee'])->find($id);
-
-        if (!$user) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Employee not found',
-            ], 404);
+        if (!in_array($employee->role, ['Owner', 'Employee'])) {
+            return $this->errorResponse('Employee not found', 404);
         }
 
         $validated = $request->validate([
             'first_name' => 'sometimes|string|max:255',
             'last_name' => 'sometimes|string|max:255',
-            'email' => 'sometimes|email|unique:users,email,' . $id,
+            'email' => 'sometimes|email|unique:users,email,' . $employee->id,
             'phone' => 'nullable|string|max:20',
             'status' => 'sometimes|in:Active,Inactive',
-            'position' => 'sometimes|string|max:255',
+            'position' => 'sometimes|in:Trainer,Receptionist,Manager,Maintenance',
             'salary' => 'sometimes|numeric|min:0',
+            'date_hired' => 'sometimes|date',
         ]);
 
-        $user->update([
-            'first_name' => $validated['first_name'] ?? $user->first_name,
-            'last_name' => $validated['last_name'] ?? $user->last_name,
-            'name' => ($validated['first_name'] ?? $user->first_name) . ' ' . 
-                      ($validated['last_name'] ?? $user->last_name),
-            'email' => $validated['email'] ?? $user->email,
-            'phone' => $validated['phone'] ?? $user->phone,
-            'status' => $validated['status'] ?? $user->status,
-        ]);
-
-        if ($user->employee) {
-            $user->employee->update([
-                'position' => $validated['position'] ?? $user->employee->position,
-                'salary' => $validated['salary'] ?? $user->employee->salary,
-            ]);
+        if (isset($validated['first_name']) || isset($validated['last_name'])) {
+            $validated['name'] = ($validated['first_name'] ?? $employee->first_name) 
+                . ' ' . ($validated['last_name'] ?? $employee->last_name);
         }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Employee updated successfully',
-            'data' => $user->load('employee'),
-        ]);
+        $employee->update($validated);
+
+        return $this->successResponse($employee, 'Employee updated successfully');
     }
 
-    public function destroy($id)
+    public function destroy(User $employee): JsonResponse
     {
-        $user = User::where('role', 'Employee')->find($id);
-
-        if (!$user) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Employee not found or cannot be deleted',
-            ], 404);
+        if ($employee->role === 'Owner') {
+            return $this->errorResponse('Cannot delete Owner account', 400);
         }
 
-        $user->delete();
+        if ($employee->role !== 'Employee') {
+            return $this->errorResponse('Employee not found', 404);
+        }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Employee deleted successfully',
-        ]);
+        // Check if employee has payroll history
+        if ($employee->payrolls()->exists()) {
+            return $this->errorResponse('Cannot delete employee with payroll history', 400);
+        }
+
+        $employee->delete();
+
+        return $this->successResponse(null, 'Employee deleted successfully');
     }
 
-    public function active()
+    public function active(): JsonResponse
     {
         $employees = User::whereIn('role', ['Owner', 'Employee'])
             ->where('status', 'Active')
-            ->with('employee')
             ->get();
 
-        return response()->json([
-            'success' => true,
-            'data' => $employees,
-        ]);
+        return $this->successResponse($employees);
     }
 }
