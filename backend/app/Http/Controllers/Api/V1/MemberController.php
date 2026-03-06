@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Models\ActionLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Services\ActionLogService;
 
 class MemberController extends Controller
 {
@@ -85,6 +87,8 @@ class MemberController extends Controller
             'expiration_date' => $expirationDate,
         ]);
 
+        ActionLogService::log(ActionLog::MEMBER_CREATED, "Created member: {$member->name}", $member);
+
         return $this->successResponse($member, 'Member created successfully', 201);
     }
 
@@ -132,6 +136,7 @@ class MemberController extends Controller
 
         $member->update($validated);
 
+        ActionLogService::log(ActionLog::MEMBER_UPDATED, "Updated member: {$member->name}", $member);
         return $this->successResponse($member, 'Member updated successfully');
     }
 
@@ -142,6 +147,7 @@ class MemberController extends Controller
         }
 
         $member->delete();
+        ActionLogService::log(ActionLog::MEMBER_DELETED, "Deleted member: {$member->name}", $member);
 
         return $this->successResponse(null, 'Member deleted successfully');
     }
@@ -175,6 +181,8 @@ class MemberController extends Controller
             'expiration_date' => $expirationDate,
             'status' => 'Active',
         ]);
+        
+        ActionLogService::log(ActionLog::MEMBER_RENEWED, "Renewed membership: {$member->name}", $member);
 
         return $this->successResponse($member, 'Membership renewed successfully');
     }

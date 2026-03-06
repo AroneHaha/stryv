@@ -7,6 +7,8 @@ use App\Models\Payroll;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Models\ActionLog;
+use App\Services\ActionLogService;
 
 class PayrollController extends Controller
 {
@@ -69,6 +71,7 @@ class PayrollController extends Controller
             'status' => 'Unpaid',
         ]);
 
+        ActionLogService::log(ActionLog::PAYROLL_GENERATED, "Generated payroll for: {$employee->name} - {$validated['month']}/{$validated['year']}");
         return $this->successResponse($payroll->load(['employee', 'marker']), 'Payroll created successfully', 201);
     }
 
@@ -89,6 +92,7 @@ class PayrollController extends Controller
             'marked_by' => $request->user()->id,
         ]);
 
+        ActionLogService::log(ActionLog::PAYROLL_PAID, "Marked payroll as paid: {$payroll->employee_name}", $payroll);
         return $this->successResponse($payroll->load(['employee', 'marker']), 'Payroll marked as paid');
     }
 
@@ -110,7 +114,8 @@ class PayrollController extends Controller
             'year' => 'required|integer|min:2020|max:2030',
         ]);
 
-        $employees = User::whereIn('role', ['Owner', 'Employee'])
+        // Only Employees, NOT Owners
+        $employees = User::where('role', 'Employee')
             ->where('status', 'Active')
             ->get();
 

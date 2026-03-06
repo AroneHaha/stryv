@@ -7,6 +7,8 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use App\Models\ActionLog;
+use App\Services\ActionLogService;
 
 class EmployeeController extends Controller
 {
@@ -66,6 +68,7 @@ class EmployeeController extends Controller
             'salary' => $validated['salary'],
             'date_hired' => $validated['date_hired'],
         ]);
+        ActionLogService::log(ActionLog::EMPLOYEE_CREATED, "Created employee: {$employee->name}", $employee);
 
         return $this->successResponse($employee, 'Employee created successfully', 201);
     }
@@ -103,6 +106,7 @@ class EmployeeController extends Controller
 
         $employee->update($validated);
 
+        ActionLogService::log(ActionLog::EMPLOYEE_UPDATED, "Updated employee: {$employee->name}", $employee);
         return $this->successResponse($employee, 'Employee updated successfully');
     }
 
@@ -123,6 +127,7 @@ class EmployeeController extends Controller
 
         $employee->delete();
 
+        ActionLogService::log(ActionLog::EMPLOYEE_DELETED, "Deleted employee: {$employee->name}", $employee);
         return $this->successResponse(null, 'Employee deleted successfully');
     }
 

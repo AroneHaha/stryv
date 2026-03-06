@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\MemberController;
 use App\Http\Controllers\Api\V1\EmployeeController;
 use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\PayrollController;
+use App\Http\Controllers\Api\V1\DashboardController;
 use Illuminate\Support\Facades\Route;
 
 // Public routes
@@ -50,6 +51,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/v1/payroll/{payroll}', [PayrollController::class, 'show']);
     Route::post('/v1/payroll/{payroll}/mark-paid', [PayrollController::class, 'markPaid']);
     Route::delete('/v1/payroll/{payroll}', [PayrollController::class, 'destroy']);
+
+    // Dashboard (Owner & Employee)
+    Route::get('/v1/dashboard', [DashboardController::class, 'index']);
+    Route::get('/v1/dashboard/recent-activity', [DashboardController::class, 'recentActivity']);
+    Route::get('/v1/dashboard/revenue-chart', [DashboardController::class, 'revenueChart']);
 });
 
 // Health check

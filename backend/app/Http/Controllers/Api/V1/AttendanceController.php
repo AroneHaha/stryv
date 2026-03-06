@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Attendance;
 use App\Models\User;
 use Illuminate\Http\Request;
+use App\Models\ActionLog;
+use App\Services\ActionLogService;
 
 class AttendanceController extends Controller
 {
@@ -66,6 +68,7 @@ class AttendanceController extends Controller
 
         $attendance = Attendance::create($validated);
 
+        ActionLogService::log(ActionLog::ATTENDANCE_RECORDED, "Recorded attendance: {$attendance->name}", $attendance);
         return response()->json([
             'success' => true,
             'message' => 'Attendance recorded successfully',
@@ -103,6 +106,7 @@ class AttendanceController extends Controller
 
         $attendance->delete();
 
+        ActionLogService::log(ActionLog::ATTENDANCE_DELETED, "Deleted attendance: {$attendance->name}", $attendance);
         return response()->json([
             'success' => true,
             'message' => 'Attendance record deleted successfully',
