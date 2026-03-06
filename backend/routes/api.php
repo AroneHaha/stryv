@@ -19,32 +19,37 @@ Route::middleware('auth:sanctum')->group(function () {
     // Members
     Route::get('/v1/members', [MemberController::class, 'index']);
     Route::post('/v1/members', [MemberController::class, 'store']);
-    Route::get('/v1/members/{id}', [MemberController::class, 'show']);
-    Route::put('/v1/members/{id}', [MemberController::class, 'update']);
-    Route::patch('/v1/members/{id}', [MemberController::class, 'update']);
-    Route::delete('/v1/members/{id}', [MemberController::class, 'destroy']);
-    Route::post('/v1/members/{id}/renew', [MemberController::class, 'renew']);
+    Route::get('/v1/members/{member}', [MemberController::class, 'show']);
+    Route::put('/v1/members/{member}', [MemberController::class, 'update']);
+    Route::patch('/v1/members/{member}', [MemberController::class, 'update']);
+    Route::delete('/v1/members/{member}', [MemberController::class, 'destroy']);
+    Route::post('/v1/members/{member}/renew', [MemberController::class, 'renew']);
 
-    // Employees (Owner view only)
-    Route::apiResource('/v1/employees', EmployeeController::class);
-    Route::get('/v1/employees-active', [EmployeeController::class, 'active']);
+    // Employees (Owner only)
+    Route::get('/v1/employees', [EmployeeController::class, 'index']);
+    Route::post('/v1/employees', [EmployeeController::class, 'store']);
+    Route::get('/v1/employees/active', [EmployeeController::class, 'active']);
+    Route::get('/v1/employees/{employee}', [EmployeeController::class, 'show']);
+    Route::put('/v1/employees/{employee}', [EmployeeController::class, 'update']);
+    Route::patch('/v1/employees/{employee}', [EmployeeController::class, 'update']);
+    Route::delete('/v1/employees/{employee}', [EmployeeController::class, 'destroy']);
 
-    // Attendance - CUSTOM ROUTES FIRST, THEN {id} ROUTES
+    // Attendance - CUSTOM ROUTES FIRST
     Route::get('/v1/attendance', [AttendanceController::class, 'index']);
     Route::post('/v1/attendance', [AttendanceController::class, 'store']);
-    Route::get('/v1/attendance/today', [AttendanceController::class, 'today']); 
-    Route::get('/v1/attendance/stats', [AttendanceController::class, 'stats']); 
-    Route::get('/v1/attendance/{id}', [AttendanceController::class, 'show']);   
-    Route::delete('/v1/attendance/{id}', [AttendanceController::class, 'destroy']);
+    Route::get('/v1/attendance/today', [AttendanceController::class, 'today']);
+    Route::get('/v1/attendance/stats', [AttendanceController::class, 'stats']);
+    Route::get('/v1/attendance/{attendance}', [AttendanceController::class, 'show']);
+    Route::delete('/v1/attendance/{attendance}', [AttendanceController::class, 'destroy']);
 
     // Payroll - Custom routes FIRST
     Route::get('/v1/payroll', [PayrollController::class, 'index']);
     Route::post('/v1/payroll', [PayrollController::class, 'store']);
     Route::post('/v1/payroll/generate', [PayrollController::class, 'generate']);
     Route::get('/v1/payroll/stats', [PayrollController::class, 'stats']);
-    Route::get('/v1/payroll/{id}', [PayrollController::class, 'show']);
-    Route::post('/v1/payroll/{id}/mark-paid', [PayrollController::class, 'markPaid']);
-    Route::delete('/v1/payroll/{id}', [PayrollController::class, 'destroy']);
+    Route::get('/v1/payroll/{payroll}', [PayrollController::class, 'show']);
+    Route::post('/v1/payroll/{payroll}/mark-paid', [PayrollController::class, 'markPaid']);
+    Route::delete('/v1/payroll/{payroll}', [PayrollController::class, 'destroy']);
 });
 
 // Health check
