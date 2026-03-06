@@ -3,255 +3,231 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Http\Resources\MemberResource;
 use App\Models\User;
-use Illuminate\Http\JsonResponse;
+use App\Models\Member;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
 
 class MemberController extends Controller
 {
-    /**
-     * List members
-     */
-    public function index(Request $request): JsonResponse
+    public function __construct()
     {
-        $query = User::where('role', 'Member');
+        // Only Owner and Employee can access
+        $this->middleware(function ($request, $next) {
+            if (!in_array($request->user()->role, ['Owner', 'Employee'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized access',
+                ], 403);
+            }
+            return $next($request);
+        });
+    }
 
-        // Search
+    public function index(Request $request)
+    {
+        $query = User::where('role', 'Member')
+            ->with('member')
+            ->orderBy('created_at', 'desc');
+
         if ($request->search) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('email', 'like', "%{$search}%");
+                  ->orWhere('email', 'like', "%{$search}%")
+                  ->orWhere('phone', 'like', "%{$search}%");
             });
         }
 
-        // Filter status
-        if ($request->status && $request->status !== 'All') {
+        if ($request->status) {
             $query->where('status', $request->status);
         }
 
-        // Filter plan
-        if ($request->plan && $request->plan !== 'All') {
-            $query->where('plan', $request->plan);
-        }
+        $members = $query->paginate($request->per_page ?? 10);
 
-        $members = $query->orderBy('created_at', 'desc')->paginate($request->per_page ?? 15);
-
-        return $this->paginatedResponse($members, MemberResource::class);
+        return response()->json([
+            'success' => true,
+            'data' => $members,
+        ]);
     }
 
-    /**
-     * Create member
-     */
-    public function store(Request $request): JsonResponse
+    public function store(Request $request)
     {
-        $request->validate([
-            'firstName' => 'required|string',
-            'lastName' => 'required|string',
+        $validated = $request->validate([
+            'first_name' => 'required|string|max:255',
+            'last_name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
-            'phone' => 'nullable|string',
+            'phone' => 'nullable|string|max:20',
+            'customer_type' => 'required|in:Regular,Student',
             'plan' => 'required|in:6 Months,1 Year',
-            'customerType' => 'required|in:Regular,Student',
-            'paymentMethod' => 'required|in:Cash,GCash',
-            'startDate' => 'required|date',
+            'payment_method' => 'required|in:Cash,GCash',
+            'membership_price' => 'required|numeric|min:0',
+            'start_date' => 'required|date',
         ]);
 
-        $price = $this->calculatePrice($request->plan, $request->customerType);
-        $expirationDate = $this->calculateExpiration($request->startDate, $request->plan);
-        $username = $this->generateUsername($request->firstName, $request->lastName);
-        $password = $this->generatePassword($request->lastName, $request->startDate);
+        $expirationDate = match ($validated['plan']) {
+            '6 Months' => now()->parse($validated['start_date'])->addMonths(6),
+            '1 Year' => now()->parse($validated['start_date'])->addYear(),
+        };
 
-        $member = User::create([
-            'first_name' => $request->firstName,
-            'last_name' => $request->lastName,
-            'email' => $request->email,
-            'phone' => $request->phone,
+        $user = User::create([
+            'first_name' => $validated['first_name'],
+            'last_name' => $validated['last_name'],
+            'name' => $validated['first_name'] . ' ' . $validated['last_name'],
+            'email' => $validated['email'],
+            'phone' => $validated['phone'] ?? null,
+            'password' => Hash::make('password'),
             'role' => 'Member',
-            'plan' => $request->plan,
-            'customer_type' => $request->customerType,
-            'payment_method' => $request->paymentMethod,
-            'membership_price' => $price,
-            'start_date' => $request->startDate,
-            'expiration_date' => $expirationDate,
-            'username' => $username,
-            'password' => Hash::make($password),
             'status' => 'Active',
         ]);
 
-        return $this->successResponse([
-            'member' => $this->formatMember($member),
-            'credentials' => [
-                'username' => $username,
-                'password' => $password,
-            ],
-        ], 'Member created', 201);
+        $member = Member::create([
+            'user_id' => $user->id,
+            'customer_type' => $validated['customer_type'],
+            'plan' => $validated['plan'],
+            'payment_method' => $validated['payment_method'],
+            'membership_price' => $validated['membership_price'],
+            'start_date' => $validated['start_date'],
+            'expiration_date' => $expirationDate,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Member created successfully',
+            'data' => $user->load('member'),
+        ], 201);
     }
 
-    /**
-     * Get member
-     */
-    public function show($id): JsonResponse
+    public function show($id)
     {
-        $member = User::where('role', 'Member')->find($id);
-        
+        $member = User::where('role', 'Member')
+            ->with('member')
+            ->find($id);
+
         if (!$member) {
-            return $this->errorResponse('Member not found', 404);
+            return response()->json([
+                'success' => false,
+                'message' => 'Member not found',
+            ], 404);
         }
 
-        return $this->successResponse(['member' => $this->formatMember($member)]);
+        return response()->json([
+            'success' => true,
+            'data' => $member,
+        ]);
     }
 
-    /**
-     * Update member
-     */
-    public function update(Request $request, $id): JsonResponse
+    public function update(Request $request, $id)
     {
-        $member = User::where('role', 'Member')->find($id);
-        
-        if (!$member) {
-            return $this->errorResponse('Member not found', 404);
+        $user = User::where('role', 'Member')->find($id);
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Member not found',
+            ], 404);
         }
 
-        $request->validate([
-            'firstName' => 'sometimes|string',
-            'lastName' => 'sometimes|string',
+        $validated = $request->validate([
+            'first_name' => 'sometimes|string|max:255',
+            'last_name' => 'sometimes|string|max:255',
             'email' => 'sometimes|email|unique:users,email,' . $id,
-            'phone' => 'nullable|string',
+            'phone' => 'nullable|string|max:20',
+            'status' => 'sometimes|in:Active,Inactive',
+            'customer_type' => 'sometimes|in:Regular,Student',
+            'plan' => 'sometimes|in:6 Months,1 Year',
+            'payment_method' => 'sometimes|in:Cash,GCash',
+            'membership_price' => 'sometimes|numeric|min:0',
         ]);
 
-        $member->update([
-            'first_name' => $request->firstName ?? $member->first_name,
-            'last_name' => $request->lastName ?? $member->last_name,
-            'email' => $request->email ?? $member->email,
-            'phone' => $request->phone ?? $member->phone,
+        $user->update([
+            'first_name' => $validated['first_name'] ?? $user->first_name,
+            'last_name' => $validated['last_name'] ?? $user->last_name,
+            'name' => ($validated['first_name'] ?? $user->first_name) . ' ' . 
+                      ($validated['last_name'] ?? $user->last_name),
+            'email' => $validated['email'] ?? $user->email,
+            'phone' => $validated['phone'] ?? $user->phone,
+            'status' => $validated['status'] ?? $user->status,
         ]);
 
-        return $this->successResponse(['member' => $this->formatMember($member->fresh())]);
-    }
+        if ($user->member && isset($validated['plan'])) {
+            $expirationDate = match ($validated['plan']) {
+                '6 Months' => now()->addMonths(6),
+                '1 Year' => now()->addYear(),
+            };
 
-    /**
-     * Delete member
-     */
-    public function destroy($id): JsonResponse
-    {
-        $member = User::where('role', 'Member')->find($id);
-        
-        if (!$member) {
-            return $this->errorResponse('Member not found', 404);
+            $user->member->update([
+                'customer_type' => $validated['customer_type'] ?? $user->member->customer_type,
+                'plan' => $validated['plan'] ?? $user->member->plan,
+                'payment_method' => $validated['payment_method'] ?? $user->member->payment_method,
+                'membership_price' => $validated['membership_price'] ?? $user->member->membership_price,
+                'expiration_date' => $expirationDate,
+            ]);
         }
 
-        $member->delete();
-        return $this->successResponse(null, 'Member deleted');
+        return response()->json([
+            'success' => true,
+            'message' => 'Member updated successfully',
+            'data' => $user->load('member'),
+        ]);
     }
 
-    /**
-     * Renew membership
-     */
-    public function renew(Request $request, $id): JsonResponse
+    public function destroy($id)
     {
-        $member = User::where('role', 'Member')->find($id);
-        
-        if (!$member) {
-            return $this->errorResponse('Member not found', 404);
+        $user = User::where('role', 'Member')->find($id);
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Member not found',
+            ], 404);
         }
 
-        $request->validate([
+        $user->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Member deleted successfully',
+        ]);
+    }
+
+    public function renew(Request $request, $id)
+    {
+        $user = User::where('role', 'Member')->with('member')->find($id);
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Member not found',
+            ], 404);
+        }
+
+        $validated = $request->validate([
             'plan' => 'required|in:6 Months,1 Year',
-            'customerType' => 'required|in:Regular,Student',
-            'paymentMethod' => 'required|in:Cash,GCash',
-            'startDate' => 'required|date',
+            'payment_method' => 'required|in:Cash,GCash',
+            'membership_price' => 'required|numeric|min:0',
+            'start_date' => 'required|date',
         ]);
 
-        $price = $this->calculatePrice($request->plan, $request->customerType);
-        $expirationDate = $this->calculateExpiration($request->startDate, $request->plan);
+        $expirationDate = match ($validated['plan']) {
+            '6 Months' => now()->parse($validated['start_date'])->addMonths(6),
+            '1 Year' => now()->parse($validated['start_date'])->addYear(),
+        };
 
-        $member->update([
-            'plan' => $request->plan,
-            'customer_type' => $request->customerType,
-            'payment_method' => $request->paymentMethod,
-            'membership_price' => $price,
-            'start_date' => $request->startDate,
+        $user->member->update([
+            'plan' => $validated['plan'],
+            'payment_method' => $validated['payment_method'],
+            'membership_price' => $validated['membership_price'],
+            'start_date' => $validated['start_date'],
             'expiration_date' => $expirationDate,
-            'status' => 'Active',
         ]);
 
-        return $this->successResponse(['member' => $this->formatMember($member->fresh())]);
-    }
+        $user->update(['status' => 'Active']);
 
-    /**
-     * Toggle status
-     */
-    public function toggleStatus($id): JsonResponse
-    {
-        $member = User::where('role', 'Member')->find($id);
-        
-        if (!$member) {
-            return $this->errorResponse('Member not found', 404);
-        }
-
-        $newStatus = $member->status === 'Active' ? 'Inactive' : 'Active';
-        $member->update(['status' => $newStatus]);
-
-        return $this->successResponse(['member' => $this->formatMember($member->fresh())]);
-    }
-
-    /**
-     * Format member for response (camelCase for frontend)
-     */
-    private function formatMember(User $member): array
-    {
-        return [
-            'id' => $member->id,
-            'firstName' => $member->first_name,
-            'lastName' => $member->last_name,
-            'name' => $member->name,
-            'email' => $member->email,
-            'phone' => $member->phone,
-            'customerType' => $member->customer_type,
-            'plan' => $member->plan,
-            'paymentMethod' => $member->payment_method,
-            'price' => (float) $member->membership_price,
-            'startDate' => $member->start_date?->format('Y-m-d'),
-            'expirationDate' => $member->expiration_date?->format('Y-m-d'),
-            'username' => $member->username,
-            'status' => $member->status,
-        ];
-    }
-
-    private function calculatePrice(string $plan, string $type): float
-    {
-        $prices = [
-            '6 Months' => ['Regular' => 1000, 'Student' => 800],
-            '1 Year' => ['Regular' => 2000, 'Student' => 1600],
-        ];
-        return $prices[$plan][$type] ?? 0;
-    }
-
-    private function calculateExpiration(string $startDate, string $plan): string
-    {
-        $months = $plan === '6 Months' ? 6 : 12;
-        return date('Y-m-d', strtotime($startDate . " +{$months} months"));
-    }
-
-    private function generateUsername(string $firstName, string $lastName): string
-    {
-        $base = Str::lower($firstName . '.' . $lastName);
-        $username = $base;
-        $count = 1;
-
-        while (User::where('username', $username)->exists()) {
-            $username = $base . $count++;
-        }
-
-        return $username;
-    }
-
-    private function generatePassword(string $lastName, string $startDate): string
-    {
-        $date = date('md', strtotime($startDate));
-        return Str::lower($lastName) . '.' . $date;
+        return response()->json([
+            'success' => true,
+            'message' => 'Membership renewed successfully',
+            'data' => $user->load('member'),
+        ]);
     }
 }

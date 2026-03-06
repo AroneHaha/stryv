@@ -5,253 +5,137 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
 use App\Models\User;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 
 class AttendanceController extends Controller
 {
-    /**
-     * List attendance
-     */
-    public function index(Request $request): JsonResponse
+    public function __construct()
     {
-        $query = Attendance::query();
+        $this->middleware(function ($request, $next) {
+            if (!in_array($request->user()->role, ['Owner', 'Employee'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized access',
+                ], 403);
+            }
+            return $next($request);
+        });
+    }
 
-        // Filter by date
+    public function index(Request $request)
+    {
+        $query = Attendance::with(['user', 'recorder'])
+            ->orderBy('date', 'desc')
+            ->orderBy('time', 'desc');
+
+        if ($request->search) {
+            $search = $request->search;
+            $query->where('name', 'like', "%{$search}%");
+        }
+
         if ($request->date) {
-            $query->where('date', $request->date);
+            $query->whereDate('date', $request->date);
         }
 
-        // Filter by date range
-        if ($request->start_date && $request->end_date) {
-            $query->whereBetween('date', [$request->start_date, $request->end_date]);
-        }
-
-        // Filter by type
-        if ($request->type && $request->type !== 'All') {
+        if ($request->type) {
             $query->where('type', $request->type);
         }
 
-        // Search
-        if ($request->search) {
-            $query->where('name', 'like', "%{$request->search}%");
-        }
-
-        $records = $query->orderBy('created_at', 'desc')->paginate($request->per_page ?? 15);
-
-        $data = collect($records->items())->map(fn($r) => $this->formatAttendance($r));
+        $attendances = $query->paginate($request->per_page ?? 15);
 
         return response()->json([
             'success' => true,
-            'data' => $data,
-            'meta' => [
-                'current_page' => $records->currentPage(),
-                'last_page' => $records->lastPage(),
-                'per_page' => $records->perPage(),
-                'total' => $records->total(),
-            ],
+            'data' => $attendances,
         ]);
     }
 
-    /**
-     * Today's attendance
-     */
-    public function today(): JsonResponse
+    public function store(Request $request)
     {
-        $records = Attendance::where('date', today())
-            ->orderBy('created_at', 'desc')
-            ->get();
-
-        $stats = [
-            'total' => $records->count(),
-            'members' => $records->where('type', 'Member')->count(),
-            'walkIns' => $records->where('type', 'Walk-in')->count(),
-            'expired' => $records->where('type', 'Expired')->count(),
-            'revenue' => $records->sum('price'),
-        ];
-
-        return $this->successResponse([
-            'records' => $records->map(fn($r) => $this->formatAttendance($r)),
-            'stats' => $stats,
-        ]);
-    }
-
-    /**
-     * Create attendance
-     */
-    public function store(Request $request): JsonResponse
-    {
-        $request->validate([
-            'memberId' => 'nullable|exists:users,id',
-            'name' => 'required|string',
-            'type' => 'required|in:Member,Walk-in,Expired',
-            'customerType' => 'required|in:Regular,Student',
-            'paymentMethod' => 'required|in:Cash,GCash',
+        $validated = $request->validate([
+            'user_id' => 'nullable|exists:users,id',
+            'name' => 'required|string|max:255',
+            'type' => 'required|in:Member,Walk-in',
+            'customer_type' => 'required|in:Regular,Student',
+            'payment_method' => 'required|in:Cash,GCash',
             'price' => 'required|numeric|min:0',
+            'date' => 'required|date',
+            'time' => 'required',
         ]);
 
-        // Check duplicate for members
-        if ($request->memberId && $request->type === 'Member') {
-            $exists = Attendance::where('member_id', $request->memberId)
-                ->where('date', today())
-                ->exists();
+        $validated['recorded_by'] = $request->user()->id;
 
-            if ($exists) {
-                return $this->errorResponse('Member already checked in today', 422);
-            }
+        $attendance = Attendance::create($validated);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Attendance recorded successfully',
+            'data' => $attendance->load(['user', 'recorder']),
+        ], 201);
+    }
+
+    public function show($id)
+    {
+        $attendance = Attendance::with(['user', 'recorder'])->find($id);
+
+        if (!$attendance) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Attendance record not found',
+            ], 404);
         }
 
-        $attendance = Attendance::create([
-            'member_id' => $request->memberId,
-            'name' => $request->name,
-            'type' => $request->type,
-            'customer_type' => $request->customerType,
-            'payment_method' => $request->paymentMethod,
-            'price' => $request->price,
-            'date' => today()->format('Y-m-d'),
-            'time' => now()->format('H:i:s'),
-            'recorded_by' => Auth::id(),
+        return response()->json([
+            'success' => true,
+            'data' => $attendance,
         ]);
-
-        return $this->successResponse([
-            'attendance' => $this->formatAttendance($attendance),
-        ], 'Attendance recorded', 201);
     }
 
-    /**
-     * Get attendance
-     */
-    public function show($id): JsonResponse
+    public function destroy($id)
     {
         $attendance = Attendance::find($id);
-        
-        if (!$attendance) {
-            return $this->errorResponse('Not found', 404);
-        }
 
-        return $this->successResponse(['attendance' => $this->formatAttendance($attendance)]);
-    }
-
-    /**
-     * Delete attendance
-     */
-    public function destroy($id): JsonResponse
-    {
-        $attendance = Attendance::find($id);
-        
         if (!$attendance) {
-            return $this->errorResponse('Not found', 404);
+            return response()->json([
+                'success' => false,
+                'message' => 'Attendance record not found',
+            ], 404);
         }
 
         $attendance->delete();
-        return $this->successResponse(null, 'Deleted');
-    }
 
-    /**
-     * Stats
-     */
-    public function stats(Request $request): JsonResponse
-    {
-        $month = $request->month ?? now()->month;
-        $year = $request->year ?? now()->year;
-
-        $monthRecords = Attendance::whereMonth('date', $month)
-            ->whereYear('date', $year);
-
-        $yearRecords = Attendance::whereYear('date', $year);
-
-        return $this->successResponse([
-            'today' => $this->getTodayStats(),
-            'month' => [
-                'total' => $monthRecords->count(),
-                'members' => $monthRecords->clone()->where('type', 'Member')->count(),
-                'walkIns' => $monthRecords->clone()->where('type', 'Walk-in')->count(),
-                'expired' => $monthRecords->clone()->where('type', 'Expired')->count(),
-                'revenue' => $monthRecords->sum('price'),
-            ],
-            'year' => [
-                'total' => $yearRecords->count(),
-                'revenue' => $yearRecords->sum('price'),
-            ],
+        return response()->json([
+            'success' => true,
+            'message' => 'Attendance record deleted successfully',
         ]);
     }
 
-    /**
-     * Daily revenue
-     */
-    public function dailyRevenue(Request $request): JsonResponse
+    public function today(Request $request)
     {
-        $month = $request->month ?? now()->month;
-        $year = $request->year ?? now()->year;
-
-        $data = Attendance::whereMonth('date', $month)
-            ->whereYear('date', $year)
-            ->selectRaw('date, SUM(price) as revenue, COUNT(*) as count')
-            ->groupBy('date')
-            ->orderBy('date')
+        $attendances = Attendance::with(['user', 'recorder'])
+            ->whereDate('date', today())
+            ->orderBy('time', 'desc')
             ->get();
 
-        return $this->successResponse([
-            'dailyRevenue' => $data->map(fn($d) => [
-                'date' => $d->date->format('Y-m-d'),
-                'revenue' => (float) $d->revenue,
-                'count' => $d->count,
-            ]),
+        return response()->json([
+            'success' => true,
+            'data' => $attendances,
         ]);
     }
 
-    /**
-     * Monthly revenue
-     */
-    public function monthlyRevenue(Request $request): JsonResponse
+    public function stats(Request $request)
     {
-        $year = $request->year ?? now()->year;
+        $date = $request->date ?? today();
 
-        $data = Attendance::whereYear('date', $year)
-            ->selectRaw('MONTH(date) as month, SUM(price) as revenue, COUNT(*) as count')
-            ->groupBy('month')
-            ->orderBy('month')
-            ->get();
+        $stats = [
+            'total_today' => Attendance::whereDate('date', $date)->count(),
+            'members_today' => Attendance::whereDate('date', $date)->where('type', 'Member')->count(),
+            'walkins_today' => Attendance::whereDate('date', $date)->where('type', 'Walk-in')->count(),
+            'revenue_today' => Attendance::whereDate('date', $date)->sum('price'),
+        ];
 
-        $months = [1 => 'January', 2 => 'February', 3 => 'March', 4 => 'April', 5 => 'May', 6 => 'June', 7 => 'July', 8 => 'August', 9 => 'September', 10 => 'October', 11 => 'November', 12 => 'December'];
-
-        return $this->successResponse([
-            'monthlyRevenue' => $data->map(fn($d) => [
-                'month' => $d->month,
-                'monthName' => $months[$d->month],
-                'revenue' => (float) $d->revenue,
-                'count' => $d->count,
-            ]),
+        return response()->json([
+            'success' => true,
+            'data' => $stats,
         ]);
-    }
-
-    private function getTodayStats(): array
-    {
-        $records = Attendance::where('date', today());
-        
-        return [
-            'total' => $records->count(),
-            'members' => $records->clone()->where('type', 'Member')->count(),
-            'walkIns' => $records->clone()->where('type', 'Walk-in')->count(),
-            'expired' => $records->clone()->where('type', 'Expired')->count(),
-            'revenue' => $records->sum('price'),
-        ];
-    }
-
-    private function formatAttendance(Attendance $a): array
-    {
-        return [
-            'id' => $a->id,
-            'memberId' => $a->member_id,
-            'name' => $a->name,
-            'type' => $a->type,
-            'customerType' => $a->customer_type,
-            'paymentMethod' => $a->payment_method,
-            'price' => (float) $a->price,
-            'date' => $a->date->format('Y-m-d'),
-            'time' => $a->time,
-            'recordedBy' => $a->recorded_by,
-        ];
     }
 }

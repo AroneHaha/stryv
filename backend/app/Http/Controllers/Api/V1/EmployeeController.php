@@ -4,205 +4,183 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use Illuminate\Http\JsonResponse;
+use App\Models\Employee;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 
 class EmployeeController extends Controller
 {
-    /**
-     * List employees
-     */
-    public function index(Request $request): JsonResponse
+    public function __construct()
     {
-        $query = User::where('role', 'Employee');
+        $this->middleware(function ($request, $next) {
+            if ($request->user()->role !== 'Owner') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only Owner can access this resource',
+                ], 403);
+            }
+            return $next($request);
+        });
+    }
 
-        // Search
+    public function index(Request $request)
+    {
+        $query = User::whereIn('role', ['Owner', 'Employee'])
+            ->with('employee')
+            ->orderBy('created_at', 'desc');
+
         if ($request->search) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('email', 'like', "%{$search}%");
+                  ->orWhere('email', 'like', "%{$search}%")
+                  ->orWhere('phone', 'like', "%{$search}%");
             });
         }
 
-        // Filter status
-        if ($request->status && $request->status !== 'All') {
+        if ($request->status) {
             $query->where('status', $request->status);
         }
 
-        // Filter position/role
-        if ($request->position && $request->position !== 'All') {
-            $query->where('position', $request->position);
-        }
-
-        $employees = $query->orderBy('created_at', 'desc')->paginate($request->per_page ?? 15);
-
-        $data = collect($employees->items())->map(fn($e) => $this->formatEmployee($e));
+        $employees = $query->paginate($request->per_page ?? 10);
 
         return response()->json([
             'success' => true,
-            'data' => $data,
-            'meta' => [
-                'current_page' => $employees->currentPage(),
-                'last_page' => $employees->lastPage(),
-                'per_page' => $employees->perPage(),
-                'total' => $employees->total(),
-            ],
+            'data' => $employees,
         ]);
     }
 
-    /**
-     * Get active employees
-     */
-    public function active(): JsonResponse
+    public function store(Request $request)
     {
-        $employees = User::where('role', 'Employee')
-            ->where('status', 'Active')
-            ->orderBy('name')
-            ->get();
-
-        return $this->successResponse([
-            'employees' => $employees->map(fn($e) => $this->formatEmployee($e)),
-        ]);
-    }
-
-    /**
-     * Create employee
-     */
-    public function store(Request $request): JsonResponse
-    {
-        $request->validate([
-            'firstName' => 'required|string',
-            'lastName' => 'required|string',
+        $validated = $request->validate([
+            'first_name' => 'required|string|max:255',
+            'last_name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
-            'phone' => 'nullable|string',
-            'role' => 'required|in:Trainer,Receptionist,Manager,Maintenance',
+            'phone' => 'nullable|string|max:20',
+            'position' => 'required|string|max:255',
             'salary' => 'required|numeric|min:0',
-            'password' => 'required|string|min:6',
+            'date_hired' => 'required|date',
+            'role' => 'sometimes|in:Employee',
         ]);
 
-        $employee = User::create([
-            'first_name' => $request->firstName,
-            'last_name' => $request->lastName,
-            'email' => $request->email,
-            'phone' => $request->phone,
+        $user = User::create([
+            'first_name' => $validated['first_name'],
+            'last_name' => $validated['last_name'],
+            'name' => $validated['first_name'] . ' ' . $validated['last_name'],
+            'email' => $validated['email'],
+            'phone' => $validated['phone'] ?? null,
+            'password' => Hash::make('password'),
             'role' => 'Employee',
-            'position' => $request->role,
-            'salary' => $request->salary,
-            'date_hired' => now()->format('Y-m-d'),
-            'password' => Hash::make($request->password),
             'status' => 'Active',
         ]);
 
-        return $this->successResponse([
-            'employee' => $this->formatEmployee($employee),
-        ], 'Employee created', 201);
+        $employee = Employee::create([
+            'user_id' => $user->id,
+            'position' => $validated['position'],
+            'salary' => $validated['salary'],
+            'date_hired' => $validated['date_hired'],
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Employee created successfully',
+            'data' => $user->load('employee'),
+        ], 201);
     }
 
-    /**
-     * Get employee
-     */
-    public function show($id): JsonResponse
+    public function show($id)
     {
-        $employee = User::where('role', 'Employee')->find($id);
-        
+        $employee = User::whereIn('role', ['Owner', 'Employee'])
+            ->with('employee')
+            ->find($id);
+
         if (!$employee) {
-            return $this->errorResponse('Employee not found', 404);
+            return response()->json([
+                'success' => false,
+                'message' => 'Employee not found',
+            ], 404);
         }
 
-        return $this->successResponse(['employee' => $this->formatEmployee($employee)]);
+        return response()->json([
+            'success' => true,
+            'data' => $employee,
+        ]);
     }
 
-    /**
-     * Update employee
-     */
-    public function update(Request $request, $id): JsonResponse
+    public function update(Request $request, $id)
     {
-        $employee = User::where('role', 'Employee')->find($id);
-        
-        if (!$employee) {
-            return $this->errorResponse('Employee not found', 404);
+        $user = User::whereIn('role', ['Owner', 'Employee'])->find($id);
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Employee not found',
+            ], 404);
         }
 
-        $request->validate([
-            'firstName' => 'sometimes|string',
-            'lastName' => 'sometimes|string',
+        $validated = $request->validate([
+            'first_name' => 'sometimes|string|max:255',
+            'last_name' => 'sometimes|string|max:255',
             'email' => 'sometimes|email|unique:users,email,' . $id,
-            'phone' => 'nullable|string',
-            'role' => 'sometimes|in:Trainer,Receptionist,Manager,Maintenance',
+            'phone' => 'nullable|string|max:20',
+            'status' => 'sometimes|in:Active,Inactive',
+            'position' => 'sometimes|string|max:255',
             'salary' => 'sometimes|numeric|min:0',
         ]);
 
-        $oldSalary = $employee->salary;
-
-        $employee->update([
-            'first_name' => $request->firstName ?? $employee->first_name,
-            'last_name' => $request->lastName ?? $employee->last_name,
-            'email' => $request->email ?? $employee->email,
-            'phone' => $request->phone ?? $employee->phone,
-            'position' => $request->role ?? $employee->position,
-            'salary' => $request->salary ?? $employee->salary,
+        $user->update([
+            'first_name' => $validated['first_name'] ?? $user->first_name,
+            'last_name' => $validated['last_name'] ?? $user->last_name,
+            'name' => ($validated['first_name'] ?? $user->first_name) . ' ' . 
+                      ($validated['last_name'] ?? $user->last_name),
+            'email' => $validated['email'] ?? $user->email,
+            'phone' => $validated['phone'] ?? $user->phone,
+            'status' => $validated['status'] ?? $user->status,
         ]);
 
-        // Update unpaid payroll if salary changed
-        if ($request->salary && $request->salary != $oldSalary) {
-            \App\Models\Payroll::where('employee_id', $employee->id)
-                ->where('status', 'Unpaid')
-                ->update(['salary' => $request->salary]);
+        if ($user->employee) {
+            $user->employee->update([
+                'position' => $validated['position'] ?? $user->employee->position,
+                'salary' => $validated['salary'] ?? $user->employee->salary,
+            ]);
         }
 
-        return $this->successResponse(['employee' => $this->formatEmployee($employee->fresh())]);
+        return response()->json([
+            'success' => true,
+            'message' => 'Employee updated successfully',
+            'data' => $user->load('employee'),
+        ]);
     }
 
-    /**
-     * Delete employee
-     */
-    public function destroy($id): JsonResponse
+    public function destroy($id)
     {
-        $employee = User::where('role', 'Employee')->find($id);
-        
-        if (!$employee) {
-            return $this->errorResponse('Employee not found', 404);
+        $user = User::where('role', 'Employee')->find($id);
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Employee not found or cannot be deleted',
+            ], 404);
         }
 
-        $employee->delete();
-        return $this->successResponse(null, 'Employee deleted');
+        $user->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Employee deleted successfully',
+        ]);
     }
 
-    /**
-     * Toggle status
-     */
-    public function toggleStatus($id): JsonResponse
+    public function active()
     {
-        $employee = User::where('role', 'Employee')->find($id);
-        
-        if (!$employee) {
-            return $this->errorResponse('Employee not found', 404);
-        }
+        $employees = User::whereIn('role', ['Owner', 'Employee'])
+            ->where('status', 'Active')
+            ->with('employee')
+            ->get();
 
-        $newStatus = $employee->status === 'Active' ? 'Inactive' : 'Active';
-        $employee->update(['status' => $newStatus]);
-
-        return $this->successResponse(['employee' => $this->formatEmployee($employee->fresh())]);
-    }
-
-    /**
-     * Format employee (camelCase for frontend)
-     */
-    private function formatEmployee(User $employee): array
-    {
-        return [
-            'id' => $employee->id,
-            'firstName' => $employee->first_name,
-            'lastName' => $employee->last_name,
-            'name' => $employee->name,
-            'email' => $employee->email,
-            'phone' => $employee->phone,
-            'role' => $employee->position,
-            'salary' => (string) $employee->salary,
-            'dateHired' => $employee->date_hired?->format('Y-m-d'),
-            'status' => $employee->status,
-        ];
+        return response()->json([
+            'success' => true,
+            'data' => $employees,
+        ]);
     }
 }

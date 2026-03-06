@@ -6,7 +6,7 @@ use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Foundation\Validation\ValidatesRequests;
 use Illuminate\Routing\Controller as BaseController;
 
-class Controller extends BaseController
+abstract class Controller extends BaseController
 {
     use AuthorizesRequests, ValidatesRequests;
 
@@ -26,20 +26,5 @@ class Controller extends BaseController
             'message' => $message,
             'errors' => $errors,
         ], $code);
-    }
-
-    protected function paginatedResponse($paginator, string $resourceClass, string $message = 'Success')
-    {
-        return response()->json([
-            'success' => true,
-            'message' => $message,
-            'data' => $resourceClass::collection($paginator->items()),
-            'meta' => [
-                'current_page' => $paginator->currentPage(),
-                'last_page' => $paginator->lastPage(),
-                'per_page' => $paginator->perPage(),
-                'total' => $paginator->total(),
-            ],
-        ]);
     }
 }

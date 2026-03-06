@@ -7,243 +7,153 @@ use App\Models\Payroll;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 
 class PayrollController extends Controller
 {
-    /**
-     * List payroll
-     */
     public function index(Request $request): JsonResponse
     {
-        $query = Payroll::query();
+        $query = Payroll::with(['employee', 'marker'])
+            ->orderBy('year', 'desc')
+            ->orderBy('month', 'desc');
 
-        if ($request->month && $request->month !== 'All') {
+        if ($request->has('month') && $request->month) {
             $query->where('month', $request->month);
         }
 
-        if ($request->year && $request->year !== 'All') {
+        if ($request->has('year') && $request->year) {
             $query->where('year', $request->year);
         }
 
-        if ($request->status && $request->status !== 'All') {
+        if ($request->has('status') && $request->status) {
             $query->where('status', $request->status);
         }
 
-        if ($request->search) {
-            $query->where('employee_name', 'like', "%{$request->search}%");
+        if ($request->has('employee_id') && $request->employee_id) {
+            $query->where('employee_id', $request->employee_id);
         }
 
-        $records = $query->orderBy('created_at', 'desc')->paginate($request->per_page ?? 15);
+        $payrolls = $query->paginate($request->per_page ?? 10);
 
-        $data = collect($records->items())->map(fn($p) => $this->formatPayroll($p));
-
-        return response()->json([
-            'success' => true,
-            'data' => $data,
-            'meta' => [
-                'current_page' => $records->currentPage(),
-                'last_page' => $records->lastPage(),
-                'per_page' => $records->perPage(),
-                'total' => $records->total(),
-            ],
-        ]);
+        return $this->successResponse($payrolls);
     }
 
-    /**
-     * Stats
-     */
-    public function stats(Request $request): JsonResponse
+    public function store(Request $request): JsonResponse
     {
-        $month = $request->month ?? now()->month;
-        $year = $request->year ?? now()->year;
-
-        $query = Payroll::where('month', $month)->where('year', $year);
-
-        return $this->successResponse([
-            'totals' => [
-                'total' => $query->sum('salary'),
-                'paid' => $query->clone()->where('status', 'Paid')->sum('salary'),
-                'unpaid' => $query->clone()->where('status', 'Unpaid')->sum('salary'),
-                'paidCount' => $query->clone()->where('status', 'Paid')->count(),
-                'unpaidCount' => $query->clone()->where('status', 'Unpaid')->count(),
-            ],
-            'activeEmployees' => User::where('role', 'Employee')->where('status', 'Active')->count(),
-        ]);
-    }
-
-    /**
-     * Available years
-     */
-    public function years(): JsonResponse
-    {
-        $years = Payroll::select('year')
-            ->distinct()
-            ->orderBy('year', 'desc')
-            ->pluck('year')
-            ->toArray();
-
-        if (!in_array(now()->year, $years)) {
-            $years[] = now()->year;
-        }
-
-        return $this->successResponse(['years' => array_values($years)]);
-    }
-
-    /**
-     * Generate payroll for month
-     */
-    public function generate(Request $request): JsonResponse
-    {
-        $request->validate([
-            'month' => 'required|integer|between:1,12',
-            'year' => 'required|integer',
+        $validated = $request->validate([
+            'employee_id' => 'required|exists:users,id',
+            'month' => 'required|integer|min:1|max:12',
+            'year' => 'required|integer|min:2020|max:2030',
         ]);
 
-        $employees = User::where('role', 'Employee')
-            ->where('status', 'Active')
-            ->get();
+        $employee = User::find($validated['employee_id']);
 
-        $generated = 0;
-
-        foreach ($employees as $employee) {
-            $exists = Payroll::where('employee_id', $employee->id)
-                ->where('month', $request->month)
-                ->where('year', $request->year)
-                ->exists();
-
-            if (!$exists && $employee->date_hired <= now()->parse("{$request->year}-{$request->month}-01")) {
-                Payroll::create([
-                    'employee_id' => $employee->id,
-                    'employee_name' => $employee->name,
-                    'salary' => $employee->salary,
-                    'month' => $request->month,
-                    'year' => $request->year,
-                    'status' => 'Unpaid',
-                ]);
-                $generated++;
-            }
+        if (!in_array($employee->role, ['Owner', 'Employee'])) {
+            return $this->errorResponse('Invalid employee', 400);
         }
 
-        return $this->successResponse(['generated' => $generated], "Generated {$generated} payroll records");
+        // Check if payroll already exists
+        $exists = Payroll::where('employee_id', $validated['employee_id'])
+            ->where('month', $validated['month'])
+            ->where('year', $validated['year'])
+            ->exists();
+
+        if ($exists) {
+            return $this->errorResponse('Payroll already exists for this period', 400);
+        }
+
+        $payroll = Payroll::create([
+            'employee_id' => $employee->id,
+            'employee_name' => $employee->name,
+            'salary' => $employee->salary,
+            'month' => $validated['month'],
+            'year' => $validated['year'],
+            'status' => 'Pending',
+        ]);
+
+        return $this->successResponse($payroll->load(['employee', 'marker']), 'Payroll created successfully', 201);
     }
 
-    /**
-     * Refresh payroll
-     */
-    public function refresh(): JsonResponse
+    public function show(Payroll $payroll): JsonResponse
     {
-        $generated = 0;
-
-        for ($i = 0; $i < 3; $i++) {
-            $month = now()->month + $i;
-            $year = now()->year;
-
-            if ($month > 12) {
-                $month -= 12;
-                $year++;
-            }
-
-            $employees = User::where('role', 'Employee')
-                ->where('status', 'Active')
-                ->where('date_hired', '<=', now()->parse("{$year}-{$month}-01"))
-                ->get();
-
-            foreach ($employees as $employee) {
-                $exists = Payroll::where('employee_id', $employee->id)
-                    ->where('month', $month)
-                    ->where('year', $year)
-                    ->exists();
-
-                if (!$exists) {
-                    Payroll::create([
-                        'employee_id' => $employee->id,
-                        'employee_name' => $employee->name,
-                        'salary' => $employee->salary,
-                        'month' => $month,
-                        'year' => $year,
-                        'status' => 'Unpaid',
-                    ]);
-                    $generated++;
-                }
-            }
-        }
-
-        return $this->successResponse(['generated' => $generated], "Generated {$generated} payroll records");
+        return $this->successResponse($payroll->load(['employee', 'marker']));
     }
 
-    /**
-     * Get payroll
-     */
-    public function show($id): JsonResponse
+    public function markPaid(Request $request, Payroll $payroll): JsonResponse
     {
-        $payroll = Payroll::find($id);
-        
-        if (!$payroll) {
-            return $this->errorResponse('Not found', 404);
-        }
-
-        return $this->successResponse(['payroll' => $this->formatPayroll($payroll)]);
-    }
-
-    /**
-     * Mark as paid
-     */
-    public function markPaid($id): JsonResponse
-    {
-        $payroll = Payroll::find($id);
-        
-        if (!$payroll) {
-            return $this->errorResponse('Not found', 404);
-        }
-
         if ($payroll->status === 'Paid') {
-            return $this->errorResponse('Already paid', 422);
+            return $this->errorResponse('Payroll already paid', 400);
         }
 
         $payroll->update([
             'status' => 'Paid',
             'paid_at' => now(),
-            'marked_by' => Auth::id(),
+            'marked_by' => $request->user()->id,
         ]);
 
-        return $this->successResponse(['payroll' => $this->formatPayroll($payroll->fresh())]);
+        return $this->successResponse($payroll->load(['employee', 'marker']), 'Payroll marked as paid');
     }
 
-    /**
-     * Delete
-     */
-    public function destroy($id): JsonResponse
+    public function destroy(Payroll $payroll): JsonResponse
     {
-        $payroll = Payroll::find($id);
-        
-        if (!$payroll) {
-            return $this->errorResponse('Not found', 404);
-        }
-
         if ($payroll->status === 'Paid') {
-            return $this->errorResponse('Cannot delete paid payroll', 422);
+            return $this->errorResponse('Cannot delete paid payroll', 400);
         }
 
         $payroll->delete();
-        return $this->successResponse(null, 'Deleted');
+
+        return $this->successResponse(null, 'Payroll deleted successfully');
     }
 
-    private function formatPayroll(Payroll $p): array
+    public function generate(Request $request): JsonResponse
     {
-        $months = [1 => 'January', 2 => 'February', 3 => 'March', 4 => 'April', 5 => 'May', 6 => 'June', 7 => 'July', 8 => 'August', 9 => 'September', 10 => 'October', 11 => 'November', 12 => 'December'];
+        $validated = $request->validate([
+            'month' => 'required|integer|min:1|max:12',
+            'year' => 'required|integer|min:2020|max:2030',
+        ]);
 
-        return [
-            'id' => $p->id,
-            'employeeId' => $p->employee_id,
-            'employeeName' => $p->employee_name,
-            'salary' => (float) $p->salary,
-            'month' => $p->month,
-            'year' => $p->year,
-            'period' => ($months[$p->month] ?? '') . ' ' . $p->year,
-            'status' => $p->status,
-            'paidAt' => $p->paid_at?->toISOString(),
-            'markedBy' => $p->marked_by,
-        ];
+        $employees = User::whereIn('role', ['Owner', 'Employee'])
+            ->where('status', 'Active')
+            ->get();
+
+        $created = 0;
+        foreach ($employees as $employee) {
+            $exists = Payroll::where('employee_id', $employee->id)
+                ->where('month', $validated['month'])
+                ->where('year', $validated['year'])
+                ->exists();
+
+            if (!$exists) {
+                Payroll::create([
+                    'employee_id' => $employee->id,
+                    'employee_name' => $employee->name,
+                    'salary' => $employee->salary,
+                    'month' => $validated['month'],
+                    'year' => $validated['year'],
+                    'status' => 'Pending',
+                ]);
+                $created++;
+            }
+        }
+
+        return $this->successResponse([
+            'created_count' => $created,
+            'total_employees' => $employees->count(),
+        ], "Generated {$created} payroll records");
     }
-}
+
+    public function stats(Request $request): JsonResponse
+    {
+        $month = $request->month ?? now()->month;
+        $year = $request->year ?? now()->year;
+
+        $stats = [
+            'total' => Payroll::where('month', $month)->where('year', $year)->count(),
+            'pending' => Payroll::where('month', $month)->where('year', $year)->where('status', 'Pending')->count(),
+            'paid' => Payroll::where('month', $month)->where('year', $year)->where('status', 'Paid')->count(),
+            'total_amount' => Payroll::where('month', $month)->where('year', $year)->sum('salary'),
+            'paid_amount' => Payroll::where('month', $month)->where('year', $year)->where('status', 'Paid')->sum('salary'),
+        ];
+
+        return $this->successResponse($stats);
+    }
+}   
