@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\EmployeeController;
 use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\PayrollController;
 use App\Http\Controllers\Api\V1\DashboardController;
+use App\Http\Controllers\Api\V1\MemberPortalController;
 use Illuminate\Support\Facades\Route;
 
 // Public routes
@@ -56,6 +57,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/v1/dashboard', [DashboardController::class, 'index']);
     Route::get('/v1/dashboard/recent-activity', [DashboardController::class, 'recentActivity']);
     Route::get('/v1/dashboard/revenue-chart', [DashboardController::class, 'revenueChart']);
+
+    // Member Portal (Member only)
+    Route::get('/v1/member/profile', [MemberPortalController::class, 'profile']);
+    Route::get('/v1/member/attendance', [MemberPortalController::class, 'attendance']);
+    Route::get('/v1/member/stats', [MemberPortalController::class, 'stats']);
+    Route::post('/v1/member/check-in', [MemberPortalController::class, 'checkIn']);
 });
 
 // Health check
