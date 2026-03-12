@@ -10,7 +10,7 @@ class Attendance extends Model
     use HasFactory;
 
     protected $fillable = [
-        'user_id',
+        'member_id',  // Change from 'user_id' to 'member_id'
         'name',
         'type',
         'customer_type',
@@ -26,9 +26,9 @@ class Attendance extends Model
         'date' => 'date',
     ];
 
-    public function user()
+    public function member()
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class, 'member_id');
     }
 
     public function recorder()

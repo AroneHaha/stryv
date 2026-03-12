@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Hash;
 use App\Models\ActionLog;
 use App\Services\ActionLogService;
 
+
 class EmployeeController extends Controller
 {
     public function index(Request $request): JsonResponse

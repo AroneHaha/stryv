@@ -54,7 +54,7 @@ class AttendanceController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'user_id' => 'nullable|exists:users,id',
+            'member_id' => 'nullable|exists:users,id',
             'name' => 'required|string|max:255',
             'type' => 'required|in:Member,Walk-in,Expired',
             'customer_type' => 'required|in:Regular,Student',
@@ -134,6 +134,7 @@ class AttendanceController extends Controller
             'total_today' => Attendance::whereDate('date', $date)->count(),
             'members_today' => Attendance::whereDate('date', $date)->where('type', 'Member')->count(),
             'walkins_today' => Attendance::whereDate('date', $date)->where('type', 'Walk-in')->count(),
+            'expired_today' => Attendance::whereDate('date', $date)->where('type', 'Expired')->count(),
             'revenue_today' => Attendance::whereDate('date', $date)->sum('price'),
         ];
 
