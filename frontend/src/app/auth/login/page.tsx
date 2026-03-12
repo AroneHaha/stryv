@@ -3,30 +3,51 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Zap, ArrowRight, Eye, EyeOff, Dumbbell } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { login, user } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     username: "",
     password: "",
   });
 
+  // Redirect if already logged in
+  if (user) {
+    if (user.role === 'Member') {
+      router.push("/member");
+    } else {
+      router.push("/dashboard/dashboard");
+    }
+    return null;
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    
-    setTimeout(() => {
-      setIsLoading(false);
+    setError(null);
+
+    try {
+      // Use email (username field maps to email for API)
+      const result = await login(formData.username, formData.password);
       
-      // Check for member credentials
-      if (formData.username === "test" && formData.password === "test") {
-        router.push("/member");
+      if (result.success) {
+        // Small delay to let auth state update
+        setTimeout(() => {
+          window.location.reload();
+        }, 100);
       } else {
-        router.push("/dashboard/dashboard");
+        setError(result.message || 'Invalid credentials');
       }
-    }, 1500);
+    } catch (err) {
+      setError('An unexpected error occurred');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -56,6 +77,12 @@ export default function LoginPage() {
             <p className="text-zinc-400 text-sm font-medium tracking-wide">Welcome back, athlete.</p>
           </div>
 
+          {error && (
+            <div className="mb-4 p-3 rounded-lg bg-red-900/20 border border-red-800/50 text-red-400 text-sm text-center">
+              {error}
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 ml-1">
@@ -72,6 +99,7 @@ export default function LoginPage() {
                   placeholder="Enter your username"
                   value={formData.username}
                   onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                  disabled={isLoading}
                 />
               </div>
             </div>
@@ -96,6 +124,7 @@ export default function LoginPage() {
                   placeholder="••••••••"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  disabled={isLoading}
                 />
                 <div 
                   className="absolute inset-y-0 right-0 pr-3.5 flex items-center cursor-pointer text-zinc-600 hover:text-white transition-colors" 

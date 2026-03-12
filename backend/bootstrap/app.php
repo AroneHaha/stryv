@@ -13,9 +13,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        $middleware->api(prepend: [
-            \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
-        ]);
+        // Remove Sanctum stateful middleware for pure API
+        // $middleware->api(prepend: [
+        //     \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
+        // ]);
 
         $middleware->alias([
             'role' => \App\Http\Middleware\CheckRole::class,
@@ -24,7 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // For API routes, don't redirect to login - return JSON
         $middleware->redirectGuestsTo(function (Request $request) {
             if ($request->expectsJson()) {
-                return null; // Let it return 401 JSON response
+                return null;
             }
             return route('login');
         });

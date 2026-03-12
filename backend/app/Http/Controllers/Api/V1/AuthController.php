@@ -59,13 +59,28 @@ class AuthController extends Controller
         ]);
     }
 
-    public function me(Request $request)
-    {
-        $user = $request->user()->load(['member', 'employee']);
+public function me(Request $request)
+{
+    $user = $request->user();
 
-        return response()->json([
-            'success' => true,
-            'data' => $user,
-        ]);
-    }
+    return response()->json([
+        'success' => true,
+        'data' => [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'role' => $user->role,
+            'status' => $user->status,
+            'phone' => $user->phone,
+            // Member fields
+            'username' => $user->username,
+            'customer_type' => $user->customer_type,
+            'plan' => $user->plan,
+            'expiration_date' => $user->expiration_date,
+            // Employee fields
+            'position' => $user->position,
+            'salary' => $user->salary,
+        ],
+    ]);
+}
 }
