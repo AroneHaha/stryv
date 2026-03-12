@@ -1,7 +1,7 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { authApi, getAuthToken, setAuthToken } from '../app/lib/api';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { authApi, getAuthToken, setAuthToken } from '../../src/app/lib/api';
 
 interface User {
   id: number;
@@ -24,13 +24,19 @@ interface AuthContextType {
   refreshUser: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  loading: true,
+  isAuthenticated: false,
+  login: async () => ({ success: false, message: 'Not implemented' }),
+  logout: async () => {},
+  refreshUser: async () => {},
+});
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Check if user is already logged in on mount
   useEffect(() => {
     const checkAuth = async () => {
       const token = getAuthToken();
@@ -38,7 +44,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const response = await authApi.me();
           if (response.success && response.data) {
-            setUser(response.data);
+            // API returns { user: {...} } so we need to access .user
+            setUser(response.data.user || response.data);
           } else {
             setAuthToken(null);
           }
@@ -52,7 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkAuth();
   }, []);
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string): Promise<{ success: boolean; message?: string }> => {
     try {
       setLoading(true);
       const response = await authApi.login(email, password);
@@ -63,17 +70,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       
       return { success: false, message: 'Login failed' };
-    } catch (error: any) {
-      return { 
-        success: false, 
-        message: error.message || 'Invalid credentials' 
-      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Invalid credentials';
+      return { success: false, message: errorMessage };
     } finally {
       setLoading(false);
     }
   };
 
-  const logout = async () => {
+  const logout = async (): Promise<void> => {
     try {
       await authApi.logout();
     } catch (error) {
@@ -84,37 +89,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const refreshUser = async () => {
+  const refreshUser = async (): Promise<void> => {
     try {
       const response = await authApi.me();
       if (response.success && response.data) {
-        setUser(response.data);
+        setUser(response.data.user || response.data);
       }
     } catch (error) {
       // Ignore refresh errors
     }
   };
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        loading,
-        isAuthenticated: !!user,
-        login,
-        logout,
-        refreshUser,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const contextValue: AuthContextType = {
+    user,
+    loading,
+    isAuthenticated: !!user,
+    login,
+    logout,
+    refreshUser,
+  };
+
+  return React.createElement(
+    AuthContext.Provider,
+    { value: contextValue },
+    children
   );
 }
 
-export function useAuth() {
+export function useAuth(): AuthContextType {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
   return context;
 }
